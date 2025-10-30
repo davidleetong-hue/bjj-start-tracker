@@ -1,1 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BJJ S.T.A.R.T. Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chosen Palette: Warm Neutral (Stone) with Teal Accent -->
+    <!-- Application Structure Plan: Two-view SPA ("Assessment", "Dashboard") navigated by tabs. Assessment view uses an accordion of cards for each S.T.A.R.T. phase, breaking the large table into manageable inputs (sliders, textareas). Dashboard view uses Chart.js for a radar chart (current skills snapshot) and a line chart (historical progress). This structure prioritizes a focused user experience for data entry and powerful visualization for analysis, which is superior to a simple table layout. Data is saved to localStorage for persistence. -->
+    <!-- Visualization & Content Choices: [S.T.A.R.T. Scores -> Goal: Data Input -> Viz: Accordion with HTML sliders/textareas -> Interaction: User inputs data, clicks 'Save'. -> Justification: Breaks complex form into logical steps. -> Library: Vanilla JS], [Historical Scores -> Goal: Show Progress -> Viz: Line Chart -> Interaction: View chart on Dashboard. -> Justification: Best for time-series data. -> Library: Chart.js (Canvas)], [Current Phase Scores -> Goal: Show Skill Snapshot -> Viz: Radar Chart -> Interaction: View chart on Dashboard. -> Justification: Best for comparing attributes of a single entity. -> Library: Chart.js (Canvas)], [Scoring Rubrics -> Goal: Explain 1-10 scale -> Viz: Modal Popup -> Interaction: Click '?' icon. -> Justification: Keeps helper text accessible but off main UI. -> Library: Vanilla JS] -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 350px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+                max-height: 400px;
+            }
+        }
+        .modal {
+            transition: opacity 0.25s ease;
+        }
+        .modal-content {
+            transition: all 0.25s ease;
+        }
+        .modal.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .modal.hidden .modal-content {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+    </style>
+</head>
+<body class="bg-stone-100 text-stone-900">
+
+    <div class="container max-w-6xl mx-auto p-4 sm:p-6 md:p-10">
+
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-teal-700">🥋 BJJ S.T.A.R.T. Framework</h1>
+            <p class="text-lg text-stone-600 mt-2">Athlete Self-Assessment Tracker</p>
+        </header>
+
+        <nav class="flex justify-center mb-8 bg-stone-200 rounded-lg p-2 shadow-inner">
+            <button id="nav-assessment" class="nav-btn w-1/2 px-4 py-3 font-semibold rounded-md transition-all text-stone-700 bg-white shadow">Assessment</button>
+            <button id="nav-dashboard" class="nav-btn w-1/2 px-4 py-3 font-semibold rounded-md transition-all text-stone-500">Dashboard</button>
+        </nav>
+
+        <main>
+            <div id="assessment-view" class="view-content">
+                <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+                    <h2 class="text-2xl font-semibold mb-4 text-teal-700">Monthly Assessment</h2>
+                    <p class="text-stone-600 mb-6">Complete your self-evaluation for this month. Use the <span class="font-bold text-teal-600 cursor-pointer" onclick="openModal('skill')">(❓)</span> icons to review the scoring rubrics. Be honest and objective.</p>
+                    <button id="save-month-btn" class="w-full bg-teal-600 text-white font-bold py-3 px-6 rounded-lg shadow hover:bg-teal-700 transition-all flex items-center justify-center text-lg">
+                        <span class="mr-2">💾</span> Save & View Dashboard
+                    </button>
+                </div>
+                
+                <div id="accordion-container" class="space-y-4">
+                </div>
+            </div>
+
+            <div id="dashboard-view" class="view-content hidden">
+                <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+                    <h2 class="text-2xl font-semibold mb-2 text-teal-700">Progress Dashboard</h2>
+                    <p class="text-stone-600">Visualize your journey. The radar chart shows your most recent assessment, while the line chart tracks your total score over time.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <h3 class="text-xl font-semibold mb-4 text-center">Current Skill Snapshot</h3>
+                        <div class="chart-container">
+                            <canvas id="radar-chart"></canvas>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <h3 class="text-xl font-semibold mb-4 text-center">Total Score Over Time</h3>
+                        <div class="chart-container">
+                            <canvas id="line-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-md mt-6">
+                    <h3 class="text-xl font-semibold mb-4">Assessment History</h3>
+                    <div class="overflow-x-auto">
+                        <table id="history-table" class="w-full text-left">
+                            <thead class="bg-stone-50">
+                                <tr>
+                                    <th class="p-3 font-semibold">Date</th>
+                                    <th class="p-3 font-semibold">Total Score</th>
+                                    <th class="p-3 font-semibold">Skill</th>
+                                    <th class="p-3 font-semibold">Knowledge</th>
+                                    <th class="p-3 font-semibold">Actions</th>
+                                </li>
+                            </thead>
+                            <tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="rubric-modal" class="modal hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="modal-content bg-white w-full max-w-4xl max-h-[90vh] rounded-lg shadow-2xl overflow-y-auto p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="modal-title" class="text-2xl font-bold text-teal-700">Scoring Rubric</h2>
+                <button onclick="closeModal()" class="text-3xl font-light text-stone-500 hover:text-stone-800">&times;</button>
+            </div>
+            
+            <div id="skill-rubric" class="rubric-content hidden space-y-4">
+                <h3 class="text-xl font-semibold">Metric 1: Skill / Confidence</h3>
+                <p><strong>Measures:</strong> How often the technique/position works against training partners and the confidence in applying it, regardless of the outcome of the roll.</p>
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-stone-50">
+                        <tr>
+                            <th class="border p-3 font-semibold">Score</th>
+                            <th class="border p-3 font-semibold">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="border p-3 font-bold">1-3 (BEGINNER/WEAK)</td>
+                            <td class="border p-3">Constant failure in sparring; zero confidence. I often lose this position to lower belts.</td>
+                        </tr>
+                        <tr>
+                            <td class="border p-3 font-bold">4-6 (INTERMEDIATE/INCONSISTENT)</td>
+                            <td class="border p-3">Works well on lower belts, but struggles against peers (same belt/size). Confidence is low under pressure.</td>
+                        </tr>
+                        <tr>
+                            <td class="border p-3 font-bold">7-8 (PROFICIENT/RELIABLE)</td>
+                            <td class="border p-3">Consistently effective against peers. Works reliably against one or more opponents of higher rank. High confidence under pressure.</td>
+                        </tr>
+                        <tr>
+                            <td class="border p-3 font-bold">9-10 (ADVANCED/DOMINANT)</td>
+                            <td class="border p-3">Works consistently on most opponents, including many higher belts. I can force the game into this area and dictate the action.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="knowledge-rubric" class="rubric-content hidden space-y-4">
+                <h3 class="text-xl font-semibold">Metric 2: Knowledge Depth</h3>
+                <p><strong>Measures:</strong> The cognitive understanding of the position—the "what if" scenarios, troubleshooting, and linking techniques.</p>
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-stone-50">
+                        <tr>
+                            <th class="border p-3 font-semibold">Score</th>
+                            <th class="border p-3 font-semibold">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="border p-3 font-bold">1-3 (SIMPLE KNOWLEDGE)</td>
+                            <td class="border p-3">I know the main technique/escape, but no common variations or counters. (Basic instruction video level.)</td>
+                        </tr>
+                        <tr>
+                            <td class="border p-3 font-bold">4-6 (COMPETENT KNOWLEDGE)</td>
+                            <td class="border p-3">I know 3-5 core techniques/escapes/passes, but struggle to chain them or troubleshoot when the primary attempt fails.</td>
+                        </tr>
+                        <tr>
+                            <td class="border p-3 font-bold">7-8 (SYSTEM KNOWLEDGE)</td>
+                            <td class="border p-3">I have a cohesive system (e.g., 2 passes, 2 counters, 2 submissions) and know the common reactions and secondary attacks.</td>
+                        </tr>
+                        <tr>
+                            <td class="border p-3 font-bold">9-10 (MASTER KNOWLEDGE)</td>
+                            <td class="border p-3">I know the system and can diagnose an opponent's defense and transition immediately to the correct response/offense (e.g., *if* they block the pass, *then* I know 3 follow-ups).</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        
+        const START_PHASES = [
+            { id: 's', title: 'S - Standing', desc: '(Takedowns, Pulling, Clinch)' },
+            { id: 't', title: 'T - Top Pinning & Escapes', desc: '(Passes, Escapes from Bottom Mount/Side)' },
+            { id: 'a', title: 'A - Acting from Guard', desc: '(Guard Retention, Defense, Initial Attack Setup)' },
+            { id: 'r', title: 'R - Reversing & Submitting', desc: '(Sweeps, Submissions, Finishing Mechanics)' },
+            { id: 't2', title: 'T - Transitioning', desc: '(Positional Advancements, Flow, Back Takes)' }
+        ];
+
+        let appData = { history: [] };
+        let radarChartInstance = null;
+        let lineChartInstance = null;
+
+        const navAssessment = document.getElementById('nav-assessment');
+        const navDashboard = document.getElementById('nav-dashboard');
+        const assessmentView = document.getElementById('assessment-view');
+        const dashboardView = document.getElementById('dashboard-view');
+        const accordionContainer = document.getElementById('accordion-container');
+        const saveMonthBtn = document.getElementById('save-month-btn');
+        
+        const modal = document.getElementById('rubric-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const skillRubric = document.getElementById('skill-rubric');
+        const knowledgeRubric = document.getElementById('knowledge-rubric');
+
+        const radarChartCanvas = document.getElementById('radar-chart').getContext('2d');
+        const lineChartCanvas = document.getElementById('line-chart').getContext('2d');
+        const historyTableBody = document.getElementById('history-table').querySelector('tbody');
+
+        function showView(viewId) {
+            [assessmentView, dashboardView].forEach(view => view.classList.add('hidden'));
+            document.getElementById(viewId).classList.remove('hidden');
+            
+            [navAssessment, navDashboard].forEach(btn => {
+                btn.classList.remove('bg-white', 'shadow', 'text-stone-700');
+                btn.classList.add('text-stone-500');
+            });
+
+            if (viewId === 'assessment-view') {
+                navAssessment.classList.add('bg-white', 'shadow', 'text-stone-700');
+                navAssessment.classList.remove('text-stone-500');
+            } else {
+                navDashboard.classList.add('bg-white', 'shadow', 'text-stone-700');
+                navDashboard.classList.remove('text-stone-500');
+            }
+        }
+
+        window.openModal = (type) => {
+            if (type === 'skill') {
+                modalTitle.textContent = 'Skill / Confidence Rubric';
+                skillRubric.classList.remove('hidden');
+                knowledgeRubric.classList.add('hidden');
+            } else {
+                modalTitle.textContent = 'Knowledge Depth Rubric';
+                skillRubric.classList.add('hidden');
+                knowledgeRubric.classList.remove('hidden');
+            }
+            modal.classList.remove('hidden');
+        };
+
+        window.closeModal = () => {
+            modal.classList.add('hidden');
+        };
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+        
+        function renderAccordion() {
+            accordionContainer.innerHTML = '';
+            START_PHASES.forEach(phase => {
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-lg shadow-md overflow-hidden';
+                card.innerHTML = `
+                    <button class="accordion-header w-full p-5 text-left flex justify-between items-center bg-stone-50 hover:bg-stone-100 transition-all">
+                        <div>
+                            <h3 class="text-xl font-semibold text-teal-700">${phase.title}</h3>
+                            <p class="text-stone-500">${phase.desc}</p>
+                        </div>
+                        <span class="accordion-icon text-2xl text-teal-600 font-light transform transition-transform">+</span>
+                    </button>
+                    <div class="accordion-content p-6 border-t border-stone-200 hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mb-4">
+                            <div>
+                                <label for="${phase.id}-skill" class="block text-sm font-medium text-stone-700 mb-2">
+                                    Skill/Confidence Score 
+                                    <span class="text-teal-600 font-bold cursor-pointer" onclick="openModal('skill')">(❓)</span>
+                                </label>
+                                <div class="flex items-center space-x-3">
+                                    <input type="range" id="${phase.id}-skill" data-phase="${phase.id}" class="slider w-full" min="1" max="10" value="5">
+                                    <span id="${phase.id}-skill-val" class="font-bold text-teal-600 w-8 text-center">5</span>
+                                </div>
+                            </div>
+                             <div>
+                                <label for="${phase.id}-knowledge" class="block text-sm font-medium text-stone-700 mb-2">
+                                    Knowledge Depth Score 
+                                    <span class="text-teal-600 font-bold cursor-pointer" onclick="openModal('knowledge')">(❓)</span>
+                                </label>
+                                <div class="flex items-center space-x-3">
+                                    <input type="range" id="${phase.id}-knowledge" data-phase="${phase.id}" class="slider w-full" min="1" max="10" value="5">
+                                    <span id="${phase.id}-knowledge-val" class="font-bold text-teal-600 w-8 text-center">5</span>
+                                </div>
+                            </div>
+                            <div class="md:col-span-2 text-right">
+                                <span class="font-semibold text-stone-700">Phase Average: 
+                                    <span id="${phase.id}-avg" class="font-bold text-teal-700 text-lg">5.0</span>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label for="${phase.id}-strengths" class="block text-sm font-medium text-stone-700 mb-1">Strengths (Why not lower?)</label>
+                                <textarea id="${phase.id}-strengths" rows="3" class="w-full p-2 border border-stone-300 rounded-md shadow-sm"></textarea>
+                            </div>
+                            <div>
+                                <label for="${phase.id}-weaknesses" class="block text-sm font-medium text-stone-700 mb-1">Weaknesses/Gaps (Why not higher?)</label>
+                                <textarea id="${phase.id}-weaknesses" rows="3" class="w-full p-2 border border-stone-300 rounded-md shadow-sm"></textarea>
+                            </div>
+                            <div>
+                                <label for="${phase.id}-plan" class="block text-sm font-medium text-stone-700 mb-1">Monthly Action Plan (3 Focus Points)</label>
+                                <textarea id="${phase.id}-plan" rows="3" class="w-full p-2 border border-stone-300 rounded-md shadow-sm"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                accordionContainer.appendChild(card);
+            });
+
+            accordionContainer.querySelectorAll('.accordion-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const content = header.nextElementSibling;
+                    const icon = header.querySelector('.accordion-icon');
+                    content.classList.toggle('hidden');
+                    if (content.classList.contains('hidden')) {
+                        icon.textContent = '+';
+                        icon.classList.remove('rotate-45');
+                    } else {
+                        icon.textContent = '+';
+                        icon.classList.add('rotate-45');
+                    }
+                });
+            });
+
+            accordionContainer.querySelectorAll('.slider').forEach(slider => {
+                const output = document.getElementById(`${slider.id}-val`);
+                slider.addEventListener('input', () => {
+                    output.textContent = slider.value;
+                    updatePhaseAverage(slider.dataset.phase);
+                });
+            });
+        }
+
+        function updatePhaseAverage(phaseId) {
+            const skill = document.getElementById(`${phaseId}-skill`).value;
+            const knowledge = document.getElementById(`${phaseId}-knowledge`).value;
+            const avg = ((parseInt(skill) + parseInt(knowledge)) / 2).toFixed(1);
+            document.getElementById(`${phaseId}-avg`).textContent = avg;
+        }
+
+        function handleSaveMonth() {
+            const date = new Date();
+            const entryDate = date.toISOString().split('T')[0];
+            const timestamp = date.getTime();
+
+            let totalSkill = 0;
+            let totalKnowledge = 0;
+            let phaseScores = {};
+            let textData = {};
+
+            START_PHASES.forEach(phase => {
+                const skill = parseInt(document.getElementById(`${phase.id}-skill`).value);
+                const knowledge = parseInt(document.getElementById(`${phase.id}-knowledge`).value);
+                
+                totalSkill += skill;
+                totalKnowledge += knowledge;
+                
+                phaseScores[phase.id] = {
+                    skill: skill,
+                    knowledge: knowledge,
+                    avg: (skill + knowledge) / 2
+                };
+
+                textData[phase.id] = {
+                    strengths: document.getElementById(`${phase.id}-strengths`).value,
+                    weaknesses: document.getElementById(`${phase.id}-weaknesses`).value,
+                    plan: document.getElementById(`${phase.id}-plan`).value,
+                };
+            });
+
+            const avgSkill = totalSkill / START_PHASES.length;
+            const avgKnowledge = totalKnowledge / START_PHASES.length;
+            const totalScore = (avgSkill + avgKnowledge) / 2;
+
+            const newEntry = {
+                date: entryDate,
+                timestamp: timestamp,
+                totalScore: totalScore.toFixed(1),
+                avgSkill: avgSkill.toFixed(1),
+                avgKnowledge: avgKnowledge.toFixed(1),
+                phases: phaseScores,
+                text: textData
+            };
+            
+            appData.history.push(newEntry);
+            appData.history.sort((a, b) => a.timestamp - b.timestamp);
+            saveData();
+            renderDashboard();
+            showView('dashboard-view');
+            resetAssessmentForm();
+        }
+
+        function resetAssessmentForm() {
+            START_PHASES.forEach(phase => {
+                document.getElementById(`${phase.id}-skill`).value = 5;
+                document.getElementById(`${phase.id}-knowledge`).value = 5;
+                document.getElementById(`${phase.id}-skill-val`).textContent = 5;
+                document.getElementById(`${phase.id}-knowledge-val`).textContent = 5;
+                document.getElementById(`${phase.id}-avg`).textContent = "5.0";
+                document.getElementById(`${phase.id}-strengths`).value = '';
+                document.getElementById(`${phase.id}-weaknesses`).value = '';
+                document.getElementById(`${phase.id}-plan`).value = '';
+            });
+            accordionContainer.querySelectorAll('.accordion-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            accordionContainer.querySelectorAll('.accordion-icon').forEach(icon => {
+                icon.textContent = '+';
+                icon.classList.remove('rotate-45');
+            });
+        }
+
+        function renderDashboard() {
+            if (appData.history.length === 0) {
+                return;
+            }
+            const latestEntry = appData.history[appData.history.length - 1];
+            renderRadarChart(latestEntry);
+            renderLineChart(appData.history);
+            renderHistoryTable(appData.history);
+        }
+
+        function renderRadarChart(entry) {
+            if (radarChartInstance) {
+                radarChartInstance.destroy();
+            }
+            const labels = START_PHASES.map(p => p.title.split(' - ')[1]);
+            const skillData = START_PHASES.map(p => entry.phases[p.id].skill);
+            const knowledgeData = START_PHASES.map(p => entry.phases[p.id].knowledge);
+
+            radarChartInstance = new Chart(radarChartCanvas, {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Skill/Confidence',
+                            data: skillData,
+                            backgroundColor: 'rgba(20, 184, 166, 0.2)',
+                            borderColor: 'rgb(13, 148, 136)',
+                            pointBackgroundColor: 'rgb(13, 148, 136)',
+                            pointBorderColor: '#fff',
+                            pointHoverBackgroundColor: '#fff',
+                            pointHoverBorderColor: 'rgb(13, 148, 136)'
+                        },
+                        {
+                            label: 'Knowledge Depth',
+                            data: knowledgeData,
+                            backgroundColor: 'rgba(88, 83, 83, 0.2)',
+                            borderColor: 'rgb(68, 64, 60)',
+                            pointBackgroundColor: 'rgb(68, 64, 60)',
+                            pointBorderColor: '#fff',
+                            pointHoverBackgroundColor: '#fff',
+                            pointHoverBorderColor: 'rgb(68, 64, 60)'
+                        }
+                    ]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 2,
+                                backdropColor: 'transparent',
+                                color: '#44403c'
+                            },
+                            pointLabels: {
+                                font: { size: 12, weight: '500' },
+                                color: '#44403c'
+                            },
+                            grid: {
+                                color: '#e7e5e4'
+                            },
+                            angleLines: {
+                                color: '#e7e5e4'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderLineChart(history) {
+            if (lineChartInstance) {
+                lineChartInstance.destroy();
+            }
+            const labels = history.map(e => e.date);
+            const data = history.map(e => e.totalScore);
+
+            lineChartInstance = new Chart(lineChartCanvas, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Total Process Score',
+                        data: data,
+                        borderColor: 'rgb(13, 148, 136)',
+                        backgroundColor: 'rgba(20, 184, 166, 0.1)',
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            grid: { color: '#e7e5e4' }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        function renderHistoryTable(history) {
+            historyTableBody.innerHTML = '';
+            [...history].reverse().forEach((entry, index) => {
+                const row = document.createElement('tr');
+                row.className = 'border-b border-stone-200 hover:bg-stone-50';
+                row.innerHTML = `
+                    <td class="p-3">${entry.date}</td>
+                    <td class="p-3 font-bold text-teal-700">${entry.totalScore}</td>
+                    <td class="p-3">${entry.avgSkill}</td>
+                    <td class="p-3">${entry.avgKnowledge}</td>
+                    <td class="p-3">
+                        <button class="text-sm text-teal-600 hover:text-teal-800" data-index="${index}" onclick="viewEntryDetails(this)">View</button>
+                        <button class="text-sm text-red-600 hover:text-red-800 ml-2" data-timestamp="${entry.timestamp}" onclick="deleteEntry(this)">Delete</button>
+                    </td>
+                `;
+                historyTableBody.appendChild(row);
+            });
+        }
+        
+        window.viewEntryDetails = (btn) => {
+            const entry = [...appData.history].reverse()[btn.dataset.index];
+            let details = `Assessment from: ${entry.date}\n\n`;
+            START_PHASES.forEach(phase => {
+                details += `--- ${phase.title} ---\n`;
+                details += `Skill: ${entry.phases[phase.id].skill} | Knowledge: ${entry.phases[phase.id].knowledge}\n`;
+                details += `Strengths: ${entry.text[phase.id].strengths || 'N/A'}\n`;
+                details += `Weaknesses: ${entry.text[phase.id].weaknesses || 'N/A'}\n`;
+                details += `Plan: ${entry.text[phase.id].plan || 'N/A'}\n\n`;
+            });
+            alert(details);
+        };
+        
+        window.deleteEntry = (btn) => {
+            const timestamp = parseInt(btn.dataset.timestamp);
+            if (confirm('Are you sure you want to delete this entry?')) {
+                appData.history = appData.history.filter(e => e.timestamp !== timestamp);
+                saveData();
+                renderDashboard();
+            }
+        };
+
+        function loadData() {
+            const data = localStorage.getItem('bjjTrackerApp');
+            if (data) {
+                appData = JSON.parse(data);
+            }
+        }
+
+        function saveData() {
+            localStorage.setItem('bjjTrackerApp', JSON.stringify(appData));
+        }
+
+        navAssessment.addEventListener('click', () => showView('assessment-view'));
+        navDashboard.addEventListener('click', () => showView('dashboard-view'));
+        saveMonthBtn.addEventListener('click', handleSaveMonth);
+
+        loadData();
+        renderAccordion();
+        renderDashboard();
+        showView('assessment-view');
+    });
+</script>
+
+</body>
+</html>
 
